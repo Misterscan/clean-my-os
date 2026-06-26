@@ -1,0 +1,44 @@
+{
+  "name": "clean-my-os",
+  "version": "1.0.0",
+  "description": "A cross-platform system scanner, optimizer, and cleaner.",
+  "bin": {
+    "cleanmyos": "bin/cli.js"
+  },
+  "files": [
+    "bin/cli.js",
+    "main.sesi",
+    "assets/",
+    "helpers/svg_badge.sesi",
+    "README.md"
+  ],
+  "license": "MIT",
+  "author": "Misterscan",
+  "scripts": {
+    "sesi": "node node_modules/@misterscan/sesi/bin/sesi.js",
+    "start": "node node_modules/@misterscan/sesi/bin/sesi.js -l main.sesi",
+    "help": "node node_modules/@misterscan/sesi/bin/sesi.js -l main.sesi help",
+    "clean": "node node_modules/@misterscan/sesi/bin/sesi.js -l main.sesi clean",
+    "clean:force": "node node_modules/@misterscan/sesi/bin/sesi.js -l main.sesi clean -y",
+    "clean:verbose": "node node_modules/@misterscan/sesi/bin/sesi.js -l main.sesi clean --verbose",
+    "clean:dry": "node node_modules/@misterscan/sesi/bin/sesi.js -l main.sesi clean --dry-run",
+    "clean:dry:verbose": "node node_modules/@misterscan/sesi/bin/sesi.js -l main.sesi clean --dry-run --verbose",
+    "status": "node node_modules/@misterscan/sesi/bin/sesi.js -l main.sesi status",
+    "optimize": "node node_modules/@misterscan/sesi/bin/sesi.js -l main.sesi optimize",
+    "analyze": "node node_modules/@misterscan/sesi/bin/sesi.js -l main.sesi analyze",
+    "uninstall": "node node_modules/@misterscan/sesi/bin/sesi.js -l main.sesi uninstall",
+    "eval": "node node_modules/@misterscan/sesi/bin/sesi.js -e",
+    "sesi:help": "node node_modules/@misterscan/sesi/bin/sesi.js -h",
+    "lint": "node node_modules/@misterscan/sesi/bin/sesi.js bin/lint.sesi",
+    "encrypt": "node node_modules/@misterscan/sesi/bin/sesi.js -enc",
+    "decrypt": "node node_modules/@misterscan/sesi/bin/sesi.js -dec"
+  },
+  "dependencies": {
+    "@misterscan/sesi": "1.5.8"
+  },
+    "allowScripts": {
+    "fsevents@2.3.2": true,
+    "protobufjs@7.6.4": true,
+    "@google/genai@2.10.0": true
+  }
+}

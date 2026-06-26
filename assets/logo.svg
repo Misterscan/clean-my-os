@@ -1,0 +1,25 @@
+<svg width="600" height="200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGrad">
+    <stop offset="0%" stop-color="#0f172a" />
+    <stop offset="100%" stop-color="#1e1b4b" />
+  </linearGradient>
+    <linearGradient id="shieldGrad">
+    <stop offset="0%" stop-color="#3b82f6" />
+    <stop offset="100%" stop-color="#8b5cf6" />
+  </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="600" height="200" fill="url(#bgGrad)" rx="16" ry="16" />
+  <circle cx="120" cy="100" r="80" fill="none" stroke="#ffffff" stroke-width="1" opacity="0.05" />
+  <circle cx="120" cy="100" r="65" fill="none" stroke="#ffffff" stroke-width="1" opacity="0.08" />
+  <circle cx="120" cy="100" r="54" fill="#3b82f6" opacity="0.20" stroke="#3b82f6" stroke-width="8" />
+  <circle cx="120" cy="100" r="48" fill="url(#shieldGrad)" stroke="#818cf8" stroke-width="2" />
+  <path d="M 108 98 L 117 107 L 134 88" fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
+  <polygon points="160,55 163,65 173,68 163,71 160,81 157,71 147,68 157,65" fill="#38bdf8" />
+  <polygon points="80,125 82,131 88,133 82,135 80,141 78,135 72,133 78,131" fill="#10b981" />
+  <polygon points="145,135 146,139 150,140 146,141 145,145 144,141 140,140 144,139" fill="#fbbf24" />
+  <text x="210" y="95" font-size="44" fill="#ffffff" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-weight="800">Clean</text>
+  <text x="342" y="95" font-size="44" fill="#c7d2fe" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-weight="400">My</text>
+  <text x="410" y="95" font-size="44" fill="#34d399" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-weight="800">OS</text>
+  <text x="212" y="130" font-size="15" fill="#94a3b8" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-weight="500" letter-spacing="0.5px">A cross-platform system optimizer and cleaner</text>
+</svg>

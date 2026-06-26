@@ -1,0 +1,1190 @@
+/* 
+  CleanMyOS — Sesi System Scanner, Optimizer, and Cleaner
+  A cross-platform system scanner, optimizer, and cleaner supporting macOS & Windows.
+
+  Usage:
+    npm start                      # Interactive TUI
+    npm start clean [--dry-run]    # Run deep clean directly
+    npm start status               # Real-time dashboard
+    npm start optimize             # Performance optimizer
+    npm start analyze              # Disk usage analyzer
+    npm start uninstall            # App leftovers cleaner
+*/
+
+allow "std/time" in with {sleep}
+allow "std/math" in with {floor}
+
+let verbose = false
+
+// ==========================================
+// 1. Platform Detection
+// ==========================================
+
+export fn get_platform() -> str {
+  try {
+    let p = trim(exec("node -p \"process.platform\""))
+    return p
+  } catch (e) {
+    // Fallback
+  }
+  return "unknown"
+}
+
+// ==========================================
+// 2. Color and Terminal Definitions
+// ==========================================
+
+let ESC = ""
+try {
+  let platform = get_platform()
+  if platform == "win32" {
+    ESC = trim(exec("powershell -Command \"[char]27\""))
+  } else {
+    ESC = trim(exec("printf \"\\033\""))
+  }
+} catch (e) {
+  // Fallback to empty if exec fails or is restricted
+}
+
+let C_CYAN = ESC + "[1;36m"
+let C_MAGENTA = ESC + "[1;35m"
+let C_YELLOW = ESC + "[1;33m"
+let C_GREEN = ESC + "[1;32m"
+let C_RED = ESC + "[1;31m"
+let C_BLUE = ESC + "[1;34m"
+let C_GRAY = ESC + "[1;30m"
+let C_BOLD = ESC + "[1m"
+let C_RESET = ESC + "[0m"
+
+let CLS = ESC + "[2J" + ESC + "[H"
+let HOME_POS = ESC + "[H"
+
+// ==========================================
+// 3. Helper Functions
+// ==========================================
+
+export fn get_home_dir() -> str {
+  try {
+    let platform = get_platform()
+    if platform == "win32" {
+      let home = trim(exec("node -p \"process.env.USERPROFILE\""))
+      return home
+    } else {
+      let home = trim(exec("node -p \"process.env.HOME\""))
+      return home
+    }
+  } catch (e) {
+    // Fallback
+  }
+  return "/Users"
+}
+
+export fn path_exists(path: str) -> bool {
+  try {
+    let platform = get_platform()
+    if platform == "win32" {
+      let res = trim(exec("powershell -Command \"if (Test-Path '" + path + "') { Write-Output 'yes' } else { Write-Output 'no' }\""))
+      return res == "yes"
+    } else {
+      let res = trim(exec("test -e \"" + path + "\" && echo \"yes\" || echo \"no\""))
+      return res == "yes"
+    }
+  } catch (e) {
+    // Ignore
+  }
+  return false
+}
+
+fn get_path_size(path: str) -> num {
+  try {
+    let platform = get_platform()
+    if platform == "win32" {
+      let cmd = "powershell -Command \"if (Test-Path '" + path + "') { (Get-ChildItem -Path '" + path + "' -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum } else { Write-Output 0 }\""
+      let output = trim(exec(cmd))
+      if verbose {
+        print C_GRAY "[VERBOSE] Size output: " output C_RESET
+      }
+      if len(output) > 0 && output != "0" {
+        let bytes = num(output)
+        return bytes / 1024
+      }
+      return 0
+    } else {
+      let cmd = "du -sk \"" + path + "\" 2>/dev/null || true"
+      let output = trim(exec(cmd))
+      if verbose {
+        print C_GRAY "[VERBOSE] Size output: " output C_RESET
+      }
+      if len(output) > 0 {
+        let parts = split(output, "	")
+        if len(parts) > 0 {
+          return num(trim(parts[0]))
+        }
+      }
+    }
+  } catch (err) {
+    if verbose {
+      print C_RED "[VERBOSE] Error checking size: " err C_RESET
+    }
+  }
+  return 0
+}
+
+fn empty_directory(path: str) {
+  try {
+    let platform = get_platform()
+    if platform == "win32" {
+      let cmd = "powershell -Command \"Remove-Item -Path '" + path + "\\*' -Recurse -Force -ErrorAction SilentlyContinue\" 2>nul || true"
+      exec(cmd)
+    } else {
+      let cmd = "find \"" + path + "\" -mindepth 1 -delete 2>/dev/null || true"
+      exec(cmd)
+    }
+  } catch (err) {
+    if verbose {
+      print C_RED "[VERBOSE] Clean error: " err C_RESET
+    }
+  }
+}
+
+fn list_directory_contents(path: str) -> array {
+  let items = []
+  try {
+    let platform = get_platform()
+    if platform == "win32" {
+      let cmd = "powershell -Command \"if (Test-Path '" + path + "') { Get-ChildItem -Path '" + path + "' -ErrorAction SilentlyContinue | Select-Object -First 10 | ForEach-Object { $_.Name } }\""
+      let out = trim(exec(cmd))
+      if len(out) > 0 {
+        let lines = split(out, "\n")
+        for line in lines {
+          let t = trim(line)
+          if len(t) > 0 {
+            push(items, t)
+          }
+        }
+      }
+    } else {
+      let cmd = "find \"" + path + "\" -mindepth 1 -maxdepth 1 -exec basename {} \\; 2>/dev/null | head -n 10 || true"
+      let out = trim(exec(cmd))
+      if len(out) > 0 {
+        let lines = split(out, "\n")
+        for line in lines {
+          let t = trim(line)
+          if len(t) > 0 {
+            push(items, t)
+          }
+        }
+      }
+    }
+  } catch (e) {
+    if verbose {
+      print C_RED "[VERBOSE] Error listing contents: " e C_RESET
+    }
+  }
+  return items
+}
+
+export fn format_size(kb: num) -> str {
+  if kb < 1024 {
+    let s = str(kb) + " KB"
+    return s
+  }
+  let mb = kb / 1024
+  if mb < 1024 {
+    let roundedMb = floor(mb * 100) / 100
+    let s = str(roundedMb) + " MB"
+    return s
+  }
+  let gb = mb / 1024
+  let roundedGb = floor(gb * 100) / 100
+  let s = str(roundedGb) + " GB"
+  return s
+}
+
+export fn split_words(s: str) -> array {
+  let raw = split(s, " ")
+  let words = []
+  for w in raw {
+    let trimmed = trim(w)
+    if len(trimmed) > 0 {
+      push(words, trimmed)
+    }
+  }
+  return words
+}
+
+// ==========================================
+// 4. Whitelist Management
+// ==========================================
+
+export fn is_whitelisted(path: str, whitelist: array) -> bool {
+  for item in whitelist {
+    if len(item) > 0 && contains(path, item) {
+      return true
+    }
+  }
+  return false
+}
+
+fn load_whitelist(home: str) -> array {
+  let whitelist = []
+  let config_dir = home + "/.config/cleanmyos"
+  let whitelist_file = config_dir + "/whitelist.txt"
+  try {
+    make_dir(config_dir)
+    let content = read_file(whitelist_file)
+    let lines = split(content, "\n")
+    for line in lines {
+      let t = trim(line)
+      if len(t) > 0 && !contains(t, "#") {
+        push(whitelist, t)
+      }
+    }
+  } catch (e) {
+    try {
+      write_file(whitelist_file, "# Add folder paths or keywords here to protect them from cleanup\n# Example: /Users/username/Library/Caches/important_app\n")
+    } catch (err) {}
+  }
+  return whitelist
+}
+
+fn save_whitelist(home: str, whitelist: array) {
+  let config_dir = home + "/.config/cleanmyos"
+  let whitelist_file = config_dir + "/whitelist.txt"
+  let content = "# Add folder paths or keywords here to protect them from cleanup\n"
+  for item in whitelist {
+    content = content + item + "\n"
+  }
+  try {
+    write_file(whitelist_file, content)
+  } catch (e) {
+    print "Failed to save whitelist:" e
+  }
+}
+
+// ==========================================
+// 5. Telemetry Visualizer
+// ==========================================
+
+fn make_bar(pct: num) -> str {
+  let filled = floor(pct / 5)
+  if filled > 20 {
+    filled = 20
+  }
+  if filled < 0 {
+    filled = 0
+  }
+  let bar = ""
+  for i = 0 to 20 {
+    if i < filled {
+      bar = bar + "█"
+    } else {
+      bar = bar + "░"
+    }
+  }
+  return bar
+}
+
+// ==========================================
+// 6. Feature Flows
+// ==========================================
+
+fn run_clean_flow(cmdDryRun: bool, is_cli: bool, force: bool) {
+  let home = get_home_dir()
+  let whitelist = load_whitelist(home)
+  let platform = get_platform()
+  
+  let targets = []
+  
+  if platform == "win32" {
+    let temp = ""
+    let localappdata = ""
+    let appdata = ""
+    let windir = "C:\\Windows"
+    try {
+      temp = trim(exec("node -p \"process.env.TEMP\""))
+      localappdata = trim(exec("node -p \"process.env.LOCALAPPDATA\""))
+      appdata = trim(exec("node -p \"process.env.APPDATA\""))
+    } catch (e) {
+      // Fallback defaults
+      temp = home + "\\AppData\\Local\\Temp"
+      localappdata = home + "\\AppData\\Local"
+      appdata = home + "\\AppData\\Roaming"
+    }
+    
+    targets = [
+      {"name": "User Temp Folder", "path": temp, "type": "empty"},
+      {"name": "System Temp Folder", "path": windir + "\\Temp", "type": "empty"},
+      {"name": "System Logs", "path": windir + "\\Logs", "type": "empty"},
+      {"name": "Windows Panther Setup Logs", "path": windir + "\\Panther", "type": "empty"},
+      {"name": "npm Caches", "path": appdata + "\\npm-cache", "type": "empty"},
+      {"name": "Yarn Caches", "path": localappdata + "\\Yarn\\Cache", "type": "empty"},
+      {"name": "NuGet Packages", "path": home + "\\.nuget\\packages", "type": "empty"},
+      {"name": "Pip Cache", "path": localappdata + "\\pip\\cache", "type": "empty"},
+      {"name": "Chrome Caches", "path": localappdata + "\\Google\\Chrome\\User Data\\Default\\Cache", "type": "empty"},
+      {"name": "Edge Caches", "path": localappdata + "\\Microsoft\\Edge\\User Data\\Default\\Cache", "type": "empty"},
+      {"name": "Recycle Bin", "path": "C:\\$Recycle.Bin", "type": "empty"}
+    ]
+  } else {
+    targets = [
+      {"name": "User Cache Folders", "path": home + "/Library/Caches", "type": "empty"},
+      {"name": "User Log Folders", "path": home + "/Library/Logs", "type": "empty"},
+      {"name": "System Log Folders", "path": "/Library/Logs", "type": "empty"},
+      {"name": "Var System Logs", "path": "/var/log", "type": "empty"},
+      {"name": "Xcode DerivedData", "path": home + "/Library/Developer/Xcode/DerivedData", "type": "empty"},
+      {"name": "Xcode Archives", "path": home + "/Library/Developer/Xcode/Archives", "type": "empty"},
+      {"name": "CocoaPods Caches", "path": home + "/Library/Caches/CocoaPods", "type": "empty"},
+      {"name": "npm Caches", "path": home + "/.npm/_cacache", "type": "empty"},
+      {"name": "Yarn Caches", "path": home + "/Library/Caches/Yarn", "type": "empty"},
+      {"name": "Gradle Caches", "path": home + "/.gradle/caches", "type": "empty"},
+      {"name": "Maven Local Repo", "path": home + "/.m2/repository", "type": "empty"},
+      {"name": "Chrome Caches", "path": home + "/Library/Caches/Google/Chrome", "type": "empty"},
+      {"name": "Safari Caches", "path": home + "/Library/Caches/com.apple.Safari", "type": "empty"},
+      {"name": "System Trash bin", "path": home + "/.Trashes", "type": "empty"}
+    ]
+  }
+  
+  print C_CYAN "====================================================" C_RESET
+  print "          " C_MAGENTA "🔍 DEEP SYSTEM SCAN & CLEANUP" C_RESET
+  print C_CYAN "====================================================" C_RESET
+  print C_YELLOW "Scanning system targets..." C_RESET
+  print ""
+  
+  let total_kb = 0
+  let scanned_targets = []
+  
+  for target in targets {
+    let path = target["path"]
+    let name = target["name"]
+    let type = target["type"]
+    
+    if is_whitelisted(path, whitelist) {
+      print "  " C_GRAY "[Whitelisted]" C_RESET name "-> Protected"
+    } else {
+      print "  Scanning:" name "..."
+      let kb = get_path_size(path)
+      if kb > 0 {
+        total_kb = total_kb + kb
+        push(scanned_targets, {"name": name, "path": path, "kb": kb, "type": type})
+      }
+    }
+  }
+  
+  print ""
+  print C_GREEN "=== SCAN COMPLETE ===" C_RESET
+  let formatted_total = format_size(total_kb)
+  print C_BOLD "Total reclaimable space:" C_RESET " " C_RED formatted_total C_RESET
+  print ""
+  
+  if len(scanned_targets) == 0 {
+    print "🎉 Your system is clean! No junk files found."
+    print ""
+    return
+  }
+  
+  print C_BLUE "Junk breakdown:" C_RESET
+  for t in scanned_targets {
+    let size_str = format_size(t["kb"])
+    print "  •" t["name"] ":" size_str
+    if verbose {
+      let sub_items = list_directory_contents(t["path"])
+      if len(sub_items) > 0 {
+        print C_GRAY "    [Verbose] Contents of" t["name"] ":" C_RESET
+        for item in sub_items {
+          print C_GRAY "      -" item C_RESET
+        }
+      } else {
+        print C_GRAY "    [Verbose] Contents of" t["name"] ": (Empty or inaccessible)" C_RESET
+      }
+    }
+  }
+  print ""
+  
+  let is_dry = cmdDryRun
+  if !is_cli {
+    print "Do you want to run in Dry-Run mode? (y/n, default n):"
+    let dry_choice = input("")
+    if dry_choice == "y" || dry_choice == "Y" {
+      is_dry = true
+    }
+  }
+  
+  if is_dry {
+    print C_YELLOW "[Dry Run Mode] No files were deleted." C_RESET
+    print ""
+  } else {
+    let confirm = "n"
+    if force {
+      confirm = "y"
+    } else {
+      print C_RED "⚠️  Are you sure you want to delete these files? (y/n):" C_RESET
+      confirm = input("")
+    }
+    
+    if confirm == "y" || confirm == "Y" {
+      print ""
+      print C_YELLOW "🧹 Cleaning files..." C_RESET
+      for t in scanned_targets {
+        print "  Cleaning" t["name"] "..."
+        empty_directory(t["path"])
+      }
+      print ""
+      print "🎉 " C_GREEN "Cleanup finished! Reclaimed" formatted_total "of disk space." C_RESET
+      print ""
+    } else {
+      print "Cleanup cancelled."
+      print ""
+    }
+  }
+}
+
+fn run_optimize_flow() {
+  print C_CYAN "====================================================" C_RESET
+  print "             " C_MAGENTA "🚀 SYSTEM OPTIMIZER SUITE" C_RESET
+  print C_CYAN "====================================================" C_RESET
+  
+  print "Run optimizations (DNS Flush, memory purge, UI reload)? (y/n):"
+  let confirm = input("")
+  if confirm != "y" && confirm != "Y" {
+    print "Optimization aborted."
+    print ""
+    return
+  }
+  
+  print ""
+  print C_YELLOW "Running optimizations..." C_RESET
+  let platform = get_platform()
+  
+  if platform == "win32" {
+    // 1. Flush DNS
+    print "  • Flushing DNS caches..."
+    try {
+      exec("ipconfig /flushdns")
+      print "    " C_GREEN "✓ DNS Cache Flushed" C_RESET
+    } catch (e) {
+      print "    " C_RED "✗ Failed to flush DNS" C_RESET
+    }
+    
+    // 2. Clear Font Cache
+    print "  • Restarting Font Cache service..."
+    try {
+      exec("powershell -Command \"Stop-Service -Name FontCache -Force; Remove-Item -Path 'C:\\Windows\\ServiceProfiles\\LocalService\\AppData\\Local\\FontCache\\*.dat' -Force -ErrorAction SilentlyContinue; Start-Service -Name FontCache\"")
+      print "    " C_GREEN "✓ Font cache cleaned & restarted" C_RESET
+    } catch (e) {
+      print "    " C_RED "✗ Failed to rebuild font cache (requires Administrator rights)" C_RESET
+    }
+    
+    // 3. Restart Explorer
+    print "  • Restarting Windows Explorer shell..."
+    try {
+      exec("taskkill /f /im explorer.exe && start explorer.exe")
+      print "    " C_GREEN "✓ Explorer shell restarted" C_RESET
+    } catch (e) {
+      print "    " C_RED "✗ Failed to reload Explorer" C_RESET
+    }
+  } else {
+    // 1. Flush DNS
+    print "  • Flushing DNS caches..."
+    try {
+      exec("dscacheutil -flushcache; killall -HUP mDNSResponder 2>/dev/null || true")
+      print "    " C_GREEN "✓ DNS Cache Flushed" C_RESET
+    } catch (e) {
+      print "    " C_RED "✗ Failed to flush DNS" C_RESET
+    }
+    
+    // 2. Rebuild LaunchServices Database
+    print "  • Rebuilding LaunchServices database (fixes association issues)..."
+    try {
+      exec("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -kill -r -domain local -domain system -domain user 2>/dev/null || true")
+      print "    " C_GREEN "✓ LaunchServices rebuilt" C_RESET
+    } catch (e) {
+      print "    " C_RED "✗ Failed to rebuild LaunchServices" C_RESET
+    }
+    
+    // 3. Defragment / Purge inactive RAM
+    print "  • Purging inactive memory..."
+    try {
+      exec("purge 2>/dev/null || true")
+      print "    " C_GREEN "✓ RAM compressed/purged" C_RESET
+    } catch (e) {
+      print "    " C_RED "✗ Memory purge failed (may require sudo)" C_RESET
+    }
+    
+    // 4. Reload Finder & Dock
+    print "  • Restarting system UI (Finder & Dock)..."
+    try {
+      exec("killall Finder && killall Dock 2>/dev/null || true")
+      print "    " C_GREEN "✓ UI refreshed successfully" C_RESET
+    } catch (e) {
+      print "    " C_RED "✗ Failed to reload system processes" C_RESET
+    }
+  }
+  
+  print ""
+  print "🎉 " C_GREEN "System optimization complete!" C_RESET
+  print ""
+}
+
+fn run_status_flow() {
+  print CLS
+  print C_CYAN "====================================================" C_RESET
+  print "         " C_MAGENTA "📊 SYSTEM PERFORMANCE DASHBOARD" C_RESET
+  
+  let platform = get_platform()
+  
+  for cycle = 0 to 15 {
+    try {
+      // Clear current content
+      let display_cycle = cycle + 1
+      print HOME_POS
+      print C_CYAN "====================================================" C_RESET
+      print "         " C_MAGENTA "📊 SYSTEM PERFORMANCE DASHBOARD" C_RESET
+      print "               (Cycle" display_cycle "of 15)"
+      print "             (Monitoring in real-time)"
+      print "               (Press Ctrl+C to exit)"
+      print C_CYAN "====================================================" C_RESET
+      
+      if platform == "win32" {
+        // Windows Status queries
+        
+        // 1. CPU
+        let active_cpu = 0.0
+        try {
+          let cpu_out = trim(exec("powershell -Command \"(Get-CimInstance Win32_Processor).LoadPercentage\""))
+          active_cpu = num(cpu_out)
+        } catch (e) {}
+        let cpu_bar = make_bar(active_cpu)
+        print C_BOLD "CPU Load:" C_RESET "   [" cpu_bar "]" active_cpu "%"
+        
+        // 2. RAM
+        let mem_pct = 0.0
+        let used_mem_formatted = "0 MB"
+        let total_mem_formatted = "0 MB"
+        try {
+          let ram_out = trim(exec("powershell -Command \"$m = Get-CimInstance Win32_PhysicalMemory; $t = ($m | Measure-Object -Property Capacity -Sum).Sum; $f = (Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory * 1024; Write-Output \\\"$t,$f\\\"\""))
+          let parts = split(ram_out, ",")
+          if len(parts) > 1 {
+            let total_bytes = num(parts[0])
+            let free_bytes = num(parts[1])
+            let used_bytes = total_bytes - free_bytes
+            
+            if total_bytes > 0 {
+              mem_pct = (used_bytes / total_bytes) * 100
+            }
+            used_mem_formatted = format_size(used_bytes / 1024)
+            total_mem_formatted = format_size(total_bytes / 1024)
+          }
+        } catch (e) {}
+        let mem_bar = make_bar(mem_pct)
+        let rounded_mem = floor(mem_pct * 10) / 10
+        print C_BOLD "RAM Usage:" C_RESET "  [" mem_bar "]" rounded_mem "% (" used_mem_formatted "/" total_mem_formatted ")"
+        
+        // 3. Disk
+        let disk_pct = 0.0
+        let disk_total_formatted = "0 GB"
+        let disk_free_formatted = "0 GB"
+        let disk_used_formatted = "0 GB"
+        try {
+          let disk_out = trim(exec("powershell -Command \"$d = Get-CimInstance Win32_LogicalDisk -Filter \\\"DeviceID='C:'\\\"; Write-Output \\\"$($d.Size),$($d.FreeSpace)\\\"\""))
+          let parts = split(disk_out, ",")
+          if len(parts) > 1 {
+            let total_bytes = num(parts[0])
+            let free_bytes = num(parts[1])
+            let used_bytes = total_bytes - free_bytes
+            if total_bytes > 0 {
+              disk_pct = (used_bytes / total_bytes) * 100
+            }
+            disk_total_formatted = format_size(total_bytes / 1024)
+            disk_free_formatted = format_size(free_bytes / 1024)
+            disk_used_formatted = format_size(used_bytes / 1024)
+          }
+        } catch (e) {}
+        let disk_bar = make_bar(disk_pct)
+        let rounded_disk = floor(disk_pct * 10) / 10
+        print C_BOLD "Disk Space:" C_RESET " [" disk_bar "]" rounded_disk "% (" disk_used_formatted "used," disk_free_formatted "free)"
+        
+        // 4. Battery
+        let has_battery = false
+        let batt_pct = 100
+        let batt_status = "AC Power"
+        try {
+          let batt_out = trim(exec("powershell -Command \"$b = Get-CimInstance Win32_Battery; if ($b) { Write-Output \\\"$($b.EstimatedChargeRemaining),$($b.BatteryStatus)\\\" }\""))
+          if len(batt_out) > 0 && contains(batt_out, ",") {
+            has_battery = true
+            let parts = split(batt_out, ",")
+            batt_pct = num(parts[0])
+            let status_code = num(parts[1])
+            if status_code == 1 {
+              batt_status = "discharging"
+            } else if status_code == 2 {
+              batt_status = "charging"
+            } else {
+              batt_status = "connected"
+            }
+          }
+        } catch (e) {}
+        
+        if has_battery {
+          let batt_bar = make_bar(batt_pct)
+          print C_BOLD "Battery:" C_RESET "    [" batt_bar "]" batt_pct "% (" batt_status ")"
+        } else {
+          print C_BOLD "Power:" C_RESET "      AC Power Connected (No Battery)"
+        }
+        
+        // 5. Uptime
+        let uptime_str = ""
+        try {
+          uptime_str = trim(exec("powershell -Command \"$u = Get-CimInstance Win32_OperatingSystem; $w = (Get-Date) - $u.LastBootUpTime; Write-Output \\\"$($w.Days) days, $($w.Hours) hours, $($w.Minutes) minutes\\\"\""))
+        } catch (e) {}
+        print C_BOLD "Uptime:" C_RESET "     " uptime_str
+        print C_CYAN "====================================================" C_RESET
+        
+      } else {
+        // macOS Status queries
+        
+        // 1. CPU
+        let top_out = ""
+        try {
+          top_out = exec("top -l 1 -n 0 | head -n 12")
+        } catch (e) {}
+        let top_lines = split(top_out, "\n")
+        
+        let cpu_line = ""
+        for line in top_lines {
+          if contains(line, "CPU usage:") {
+            cpu_line = line
+          }
+        }
+        
+        let active_cpu = 0.0
+        if len(cpu_line) > 0 {
+          let words = split_words(cpu_line)
+          let i = 0
+          while i < len(words) {
+            if contains(words[i], "idle") {
+              if i > 0 {
+                let pct_str = swap(words[i - 1], "%", "")
+                let idle_val = num(pct_str)
+                active_cpu = 100.0 - idle_val
+              }
+            }
+            i = i + 1
+          }
+        }
+        
+        let cpu_bar = make_bar(active_cpu)
+        let rounded_cpu = floor(active_cpu * 10) / 10
+        print C_BOLD "CPU Load:" C_RESET "   [" cpu_bar "]" rounded_cpu "%"
+        
+        // 2. RAM
+        let mem_line = ""
+        for line in top_lines {
+          if contains(line, "PhysMem:") {
+            mem_line = line
+          }
+        }
+        
+        let mem_pct = 0.0
+        let used_mem_formatted = "0 MB"
+        let total_mem_formatted = "0 MB"
+        
+        if len(mem_line) > 0 {
+          let words = split_words(mem_line)
+          if len(words) > 7 {
+            let used_str = swap(words[1], "M", "")
+            used_str = swap(used_str, "G", "")
+            let unused_str = swap(words[7], "M", "")
+            unused_str = swap(unused_str, "G", "")
+            
+            let used_val = num(used_str)
+            let unused_val = num(unused_str)
+            
+            if contains(words[1], "G") {
+              used_val = used_val * 1024
+            }
+            if contains(words[7], "G") {
+              unused_val = unused_val * 1024
+            }
+            
+            let total_mem = used_val + unused_val
+            if total_mem > 0 {
+              mem_pct = (used_val / total_mem) * 100
+            }
+            used_mem_formatted = format_size(used_val * 1024)
+            total_mem_formatted = format_size(total_mem * 1024)
+          }
+        }
+        
+        let mem_bar = make_bar(mem_pct)
+        let rounded_mem = floor(mem_pct * 10) / 10
+        print C_BOLD "RAM Usage:" C_RESET "  [" mem_bar "]" rounded_mem "% (" used_mem_formatted "/" total_mem_formatted ")"
+        
+        // 3. Disk
+        let df_out = ""
+        try {
+          df_out = exec("df -h /")
+        } catch (e) {}
+        let df_lines = split(df_out, "\n")
+        let df_parts = split_words(df_lines[1])
+        let disk_total = df_parts[1]
+        let disk_used = df_parts[2]
+        let disk_avail = df_parts[3]
+        let disk_pct_str = df_parts[4]
+        let disk_pct = num(swap(disk_pct_str, "%", ""))
+        let disk_bar = make_bar(disk_pct)
+        
+        print C_BOLD "Disk Space:" C_RESET " [" disk_bar "]" disk_pct "% (" disk_used "used," disk_avail "free," disk_total "total)"
+        
+        // 4. Battery
+        let batt_out = ""
+        try {
+          batt_out = exec("pmset -g batt 2>/dev/null || true")
+        } catch (e) {}
+        let batt_pct = 100
+        let batt_status = "AC Power"
+        let has_battery = false
+        
+        if len(trim(batt_out)) > 0 && contains(batt_out, "InternalBattery") {
+          has_battery = true
+          let batt_lines = split(batt_out, "\n")
+          if len(batt_lines) > 1 {
+            let detail_line = batt_lines[1]
+            let detail_parts = split(detail_line, ";")
+            if len(detail_parts) > 0 {
+              let words = split_words(detail_parts[0])
+              let last_word = words[len(words) - 1]
+              batt_pct = num(swap(last_word, "%", ""))
+            }
+            if len(detail_parts) > 1 {
+              batt_status = trim(detail_parts[1])
+            }
+          }
+        }
+        
+        if has_battery {
+          let batt_bar = make_bar(batt_pct)
+          print C_BOLD "Battery:" C_RESET "    [" batt_bar "]" batt_pct "% (" batt_status ")"
+        } else {
+          print C_BOLD "Power:" C_RESET "      AC Power Connected (No Battery)"
+        }
+        
+        // 5. Uptime
+        let uptime_out = ""
+        try {
+          uptime_out = trim(exec("uptime"))
+        } catch (e) {}
+        print C_BOLD "Uptime:" C_RESET "     " uptime_out
+        print C_CYAN "====================================================" C_RESET
+      }
+      
+    } catch (e) {
+      print "Error fetching telemetry:" e
+    }
+    
+    sleep(2000)
+  }
+  
+  print ""
+  print "Status monitoring finished."
+  print ""
+}
+
+fn run_analyze_flow() {
+  let home = get_home_dir()
+  print C_CYAN "====================================================" C_RESET
+  print "            " C_MAGENTA "📂 DISK SPACE ANALYZER" C_RESET
+  print C_CYAN "====================================================" C_RESET
+  
+  print "Enter directory path to analyze (default is home):"
+  let path_to_scan = input("")
+  let path = trim(path_to_scan)
+  if len(path) == 0 {
+    path = home
+  }
+  
+  if !path_exists(path) {
+    print C_RED "Error: Path does not exist:" C_RESET path
+    print ""
+    return
+  }
+  
+  print ""
+  print C_YELLOW "Scanning directory (this may take a few seconds)..." C_RESET
+  print ""
+  
+  let platform = get_platform()
+  let du_out = ""
+  try {
+    if platform == "win32" {
+      let cmd = "powershell -Command \"Get-ChildItem -Path '" + path + "' -ErrorAction SilentlyContinue | ForEach-Object { [PSCustomObject]@{ Name = $_.Name; Size = if ($_.PSIsContainer) { (Get-ChildItem -Path $_.FullName -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum } else { $_.Length } } } | Sort-Object Size -Descending | Select-Object -First 20 | ForEach-Object { \\\"$($_.Size)	$($_.Name)\\\" }\""
+      du_out = exec(cmd)
+    } else {
+      let cmd = "du -sk \"" + path + "/\"* 2>/dev/null | sort -nr | head -n 20 || true"
+      du_out = exec(cmd)
+    }
+    
+    let lines = split(du_out, "\n")
+    print C_GREEN "Top largest items in:" C_RESET path
+    print C_CYAN "----------------------------------------------------" C_RESET
+    print C_BOLD "  SIZE       NAME" C_RESET
+    print C_CYAN "----------------------------------------------------" C_RESET
+    
+    let count = 0
+    for line in lines {
+      let trimmed = trim(line)
+      if len(trimmed) > 0 {
+        let parts = split(trimmed, "	") // tab character
+        if len(parts) > 1 {
+          let size_num = num(trim(parts[0]))
+          let name = trim(parts[1])
+          
+          let kb = size_num
+          if platform == "win32" {
+            // Convert bytes to KB
+            kb = size_num / 1024
+          }
+          
+          let size_str = format_size(kb)
+          let padded_size = size_str
+          while len(padded_size) < 10 {
+            padded_size = padded_size + " "
+          }
+          print " " padded_size name
+          count = count + 1
+        }
+      }
+    }
+    
+    if count == 0 {
+      print "  No files found in directory."
+    }
+    print C_CYAN "----------------------------------------------------" C_RESET
+    print ""
+  } catch (e) {
+    print C_RED "Failed to analyze directory:" C_RESET e
+    print ""
+  }
+}
+
+fn run_uninstall_flow() {
+  print C_CYAN "====================================================" C_RESET
+  print "            " C_MAGENTA "🗑️  SMART APPLICATION UNINSTALLER" C_RESET
+  print C_CYAN "====================================================" C_RESET
+  
+  print "Enter Application Name (e.g. Spotify, Slack, Chrome):"
+  let app_name = input("")
+  let clean_app_name = trim(app_name)
+  
+  if len(clean_app_name) == 0 {
+    print "Application name cannot be empty."
+    print ""
+    return
+  }
+  
+  print ""
+  print C_YELLOW "🔍 Searching for application and leftovers..." C_RESET
+  
+  let home = get_home_dir()
+  let platform = get_platform()
+  let results = []
+  
+  if platform == "win32" {
+    try {
+      let program_files = "C:\\Program Files"
+      let program_files_x86 = "C:\\Program Files (x86)"
+      let appdata = trim(exec("node -p \"process.env.APPDATA\""))
+      let localappdata = trim(exec("node -p \"process.env.LOCALAPPDATA\""))
+      
+      let cmd = "powershell -Command \"Get-ChildItem -Path '" + program_files + "', '" + program_files_x86 + "', '" + appdata + "', '" + localappdata + "' -Filter '*" + clean_app_name + "*' -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }\""
+      let search_out = trim(exec(cmd))
+      let lines = split(search_out, "\n")
+      for line in lines {
+        let t = trim(line)
+        if len(t) > 0 {
+          push(results, t)
+        }
+      }
+    } catch (e) {}
+  } else {
+    let dirs = [
+      home + "/Library/Application Support",
+      home + "/Library/Caches",
+      home + "/Library/Preferences",
+      home + "/Library/Containers",
+      home + "/Library/Logs",
+      home + "/Library/LaunchAgents",
+      "/Library/LaunchAgents",
+      "/Library/LaunchDaemons"
+    ]
+    
+    // Check main application path
+    let app_path = "/Applications/" + clean_app_name + ".app"
+    if path_exists(app_path) {
+      push(results, app_path)
+    } else {
+      // Search /Applications
+      try {
+        let app_matches = split(trim(exec("find /Applications -maxdepth 2 -iname \"*" + clean_app_name + "*.app\" 2>/dev/null || true")), "\n")
+        for app in app_matches {
+          let t = trim(app)
+          if len(t) > 0 {
+            push(results, t)
+          }
+        }
+      } catch (e) {}
+    }
+    
+    // Search libraries
+    for dir in dirs {
+      try {
+        let output = trim(exec("find \"" + dir + "\" -maxdepth 2 -iname \"*" + clean_app_name + "*\" 2>/dev/null || true"))
+        let lines = split(output, "\n")
+        for line in lines {
+          let t = trim(line)
+          if len(t) > 0 {
+            push(results, t)
+          }
+        }
+      } catch (e) {}
+    }
+  }
+  
+  if len(results) == 0 {
+    print "No leftovers or application files found matching:" clean_app_name
+    print ""
+    return
+  }
+  
+  print ""
+  print C_GREEN "Found" len(results) "related files:" C_RESET
+  print C_CYAN "----------------------------------------------------" C_RESET
+  
+  let total_kb = 0
+  let sized_results = []
+  
+  for path in results {
+    let kb = get_path_size(path)
+    total_kb = total_kb + kb
+    push(sized_results, {"path": path, "kb": kb})
+    
+    let size_str = format_size(kb)
+    let padded_size = size_str
+    while len(padded_size) < 10 {
+      padded_size = padded_size + " "
+    }
+    print " " padded_size path
+  }
+  
+  print C_CYAN "----------------------------------------------------" C_RESET
+  let total_formatted = format_size(total_kb)
+  print C_BOLD "Total size of leftovers:" C_RESET " " C_RED total_formatted C_RESET
+  print ""
+  
+  print C_RED "⚠️  Are you sure you want to permanently delete all these files? (y/n):" C_RESET
+  let confirm = input("")
+  if confirm == "y" || confirm == "Y" {
+    print ""
+    print C_YELLOW "Removing files..." C_RESET
+    for item in sized_results {
+      print "  Deleting" item["path"] "..."
+      try {
+        exec("rm -rf \"" + item["path"] + "\"")
+      } catch (err) {}
+    }
+    print ""
+    print "🎉 " C_GREEN "Uninstall complete! Reclaimed" total_formatted "of space." C_RESET
+    print ""
+  } else {
+    print "Uninstall cancelled."
+    print ""
+  }
+}
+
+fn run_whitelist_flow() {
+  let home = get_home_dir()
+  let running = true
+  while running {
+    let whitelist = load_whitelist(home)
+    print C_CYAN "====================================================" C_RESET
+    print "            " C_MAGENTA "⚙️  WHITELIST MANAGER" C_RESET
+    print C_CYAN "====================================================" C_RESET
+    
+    if len(whitelist) == 0 {
+      print "  (Whitelist is empty. No paths are currently protected)"
+    } else {
+      print "Protected paths / keywords:"
+      let idx = 1
+      for item in whitelist {
+        print "  " idx "." item
+        idx = idx + 1
+      }
+    }
+    print C_CYAN "----------------------------------------------------" C_RESET
+    print "  1. Add path/keyword"
+    print "  2. Remove path/keyword"
+    print "  3. Go Back"
+    print C_CYAN "----------------------------------------------------" C_RESET
+    
+    print "Select an option (1-3):"
+    let choice = input("")
+    print ""
+    
+    if choice == "1" {
+      print "Enter path or keyword to whitelist:"
+      let path = input("")
+      let clean_path = trim(path)
+      if len(clean_path) > 0 {
+        push(whitelist, clean_path)
+        save_whitelist(home, whitelist)
+        print C_GREEN "✓ Added to whitelist." C_RESET
+      }
+      print ""
+    } else if choice == "2" {
+      if len(whitelist) == 0 {
+        print "Whitelist is already empty."
+        print ""
+      } else {
+        print "Enter number to remove:"
+        let num_str = input("")
+        let remove_idx = num(trim(num_str))
+        if remove_idx >= 1 && remove_idx <= len(whitelist) {
+          let new_whitelist = []
+          let idx = 1
+          for item in whitelist {
+            if idx != remove_idx {
+              push(new_whitelist, item)
+            }
+            idx = idx + 1
+          }
+          save_whitelist(home, new_whitelist)
+          print C_GREEN "✓ Removed from whitelist." C_RESET
+        } else {
+          print C_RED "Invalid number." C_RESET
+        }
+        print ""
+      }
+    } else if choice == "3" {
+      running = false
+    } else {
+      print "Invalid option."
+      print ""
+    }
+  }
+}
+
+fn show_help() {
+  print C_CYAN "====================================================" C_RESET
+  print "    " C_MAGENTA "🧹 CLEAN-MY-OS: CLI Usage Guide" C_RESET
+  print C_CYAN "====================================================" C_RESET
+  print "Usage:"
+  print "  npm start                     [TUI] Run interactive menu"
+  print "  npm run clean                 [Clean] Run cleanup directly"
+  print "  npm run clean:dry             [Dry Run] Run cleanup in dry-run mode"
+  print "  npm run clean:force           [Force] Run cleanup without confirmation"
+  print "  npm run clean:verbose         [Verbose] Run cleanup with verbose logs"
+  print "  npm run clean:dry:verbose     [Dry Run + Verbose] Run cleanup in dry-run mode with verbose logs"
+  print "  npm run status                [Monitor] Run performance dashboard"
+  print "  npm run optimize              [Optimize] Run optimization suite"
+  print "  npm run analyze               [Analyze] Run disk usage analyzer"
+  print "  npm run uninstall             [Uninstall] Run application uninstaller"
+  print "  npm run help                  [Help] Show this help screen"
+
+  print C_CYAN "====================================================" C_RESET
+  print ""
+}
+
+fn interactive_menu() {
+  get_home_dir()
+  let running = true
+  while running {
+    print C_CYAN "====================================================" C_RESET
+    print "    " C_MAGENTA "🧹 CLEAN-MY-OS: System Optimizer & Cleaner" C_RESET
+    print C_CYAN "====================================================" C_RESET
+    print "  " C_BLUE "1." C_RESET " 🔍 Scan & Clean (Deep Cache & Logs Cleanup)"
+    print "  " C_BLUE "2." C_RESET " 🚀 System Optimizer (Flush DNS, RAM, Services)"
+    print "  " C_BLUE "3." C_RESET " 📊 Real-time System Monitor (CPU, RAM, Disk)"
+    print "  " C_BLUE "4." C_RESET " 📂 Visual Disk Space Analyzer (Largest Files/Dirs)"
+    print "  " C_BLUE "5." C_RESET " 🗑️ Smart App Uninstaller (Leftover Cleaner)"
+    print "  " C_BLUE "6." C_RESET " ⚙️ Manage Whitelist"
+    print "  " C_BLUE "7." C_RESET " ❌ Exit"
+    print C_CYAN "----------------------------------------------------" C_RESET
+    
+    print "Select an option (1-7):"
+    let choice = input("")
+    print ""
+    
+    if choice == "1" {
+      run_clean_flow(false, false, false)
+    } else if choice == "2" {
+      run_optimize_flow()
+    } else if choice == "3" {
+      run_status_flow()
+    } else if choice == "4" {
+      run_analyze_flow()
+    } else if choice == "5" {
+      run_uninstall_flow()
+    } else if choice == "6" {
+      run_whitelist_flow()
+    } else if choice == "7" {
+      print C_GREEN "Goodbye! Keep your OS clean and fast." C_RESET
+      running = false
+    } else {
+      print C_RED "Invalid choice, please select 1-7." C_RESET
+      print ""
+    }
+  }
+}
+
+// ==========================================
+// 7. Main Execution Entry Point
+// ==========================================
+
+let mode = "interactive"
+let dryRun = false
+let force = false
+let importOnly = false
+
+let arg_idx = 0
+while arg_idx < len(args) {
+  let a = args[arg_idx]
+  if a == "clean" {
+    mode = "clean"
+  } else if a == "status" {
+    mode = "status"
+  } else if a == "optimize" {
+    mode = "optimize"
+  } else if a == "analyze" {
+    mode = "analyze"
+  } else if a == "uninstall" {
+    mode = "uninstall"
+  } else if a == "help" || a == "--help" || a == "-h" {
+    mode = "help"
+  } else if a == "--dry-run" {
+    dryRun = true
+  } else if a == "-y" || a == "--yes" || a == "--force" {
+    force = true
+  } else if a == "--import-only" {
+    importOnly = true
+  } else if a == "-v" || a == "--verbose" {
+    verbose = true
+  }
+  arg_idx = arg_idx + 1
+}
+
+if !importOnly {
+  if mode == "clean" {
+    run_clean_flow(dryRun, true, force)
+  } else if mode == "status" {
+    run_status_flow()
+  } else if mode == "optimize" {
+    run_optimize_flow()
+  } else if mode == "analyze" {
+    run_analyze_flow()
+  } else if mode == "uninstall" {
+    run_uninstall_flow()
+  } else if mode == "help" {
+    show_help()
+  } else {
+    interactive_menu()
+  }
+}

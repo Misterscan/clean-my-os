@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+.env.keys
+.sesi_cache.json
+lint_report.md
+package-lock.json
+examples/
