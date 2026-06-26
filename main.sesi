@@ -134,7 +134,7 @@ fn empty_directory(path: str) {
   try {
     let platform = get_platform()
     if platform == "win32" {
-      let cmd = "powershell -Command \"Remove-Item -Path '" + path + "\\*' -Recurse -Force -ErrorAction SilentlyContinue\" 2>nul || true"
+      let cmd = "powershell -Command \"Remove-Item -Path '" + path + "\\*' -Recurse -Force -ErrorAction SilentlyContinue; exit 0\" 2>nul"
       exec(cmd)
     } else {
       let cmd = "find \"" + path + "\" -mindepth 1 -delete 2>/dev/null || true"
