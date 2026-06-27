@@ -1,6 +1,6 @@
 {
   "name": "clean-my-os",
-  "version": "1.0.2",
+  "version": "1.0.4",
   "description": "A cross-platform system scanner, optimizer, and cleaner.",
   "bin": {
     "cleanmyos": "bin/cli.js"
@@ -34,7 +34,7 @@
     "decrypt": "node node_modules/@misterscan/sesi/bin/sesi.js -dec"
   },
   "dependencies": {
-    "@misterscan/sesi": "1.5.8"
+    "@misterscan/sesi": "1.5.9"
   },
   "allowScripts": {
     "fsevents@2.3.2": true,

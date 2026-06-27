@@ -340,7 +340,7 @@ fn run_clean_flow(cmdDryRun: bool, is_cli: bool, force: bool) {
       {"name": "Maven Local Repo", "path": home + "/.m2/repository", "type": "empty"},
       {"name": "Chrome Caches", "path": home + "/Library/Caches/Google/Chrome", "type": "empty"},
       {"name": "Safari Caches", "path": home + "/Library/Caches/com.apple.Safari", "type": "empty"},
-      {"name": "System Trash bin", "path": home + "/.Trashes", "type": "empty"}
+      {"name": "System Trash bin", "path": home + "/.Trash", "type": "empty"}
     ]
   }
   
