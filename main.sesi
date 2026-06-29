@@ -3,15 +3,15 @@
   A cross-platform system scanner, optimizer, and cleaner supporting macOS & Windows.
 
   Usage:
-    npm start                      # Interactive TUI
-    npm start clean [--dry-run]    # Run deep clean directly
-    npm start status               # Real-time dashboard
-    npm start optimize             # Performance optimizer
-    npm start analyze              # Disk usage analyzer
-    npm start uninstall            # App leftovers cleaner
+    npm start                                   # Interactive TUI
+    npm start clean [--dry-run] [--verbose]     # Run deep clean directly
+    npm start status                            # Real-time dashboard
+    npm start optimize [--dry-run] [--verbose]  # Performance optimizer
+    npm start analyze                           # Disk usage analyzer
+    npm start uninstall                         # App leftovers cleaner
 */
 
-allow "std/time" in with {sleep}
+allow "std/time" in with {sleep, now, format}
 allow "std/math" in with {floor}
 
 let verbose = false
@@ -242,7 +242,27 @@ fn load_whitelist(home: str) -> array {
     }
   } catch (e) {
     try {
-      write_file(whitelist_file, "# Add folder paths or keywords here to protect them from cleanup\n# Example: /Users/username/Library/Caches/important_app\n")
+      let default_wl = "# CleanMyOS — Default Whitelist\n"
+      default_wl = default_wl + "# Add folder paths or keywords here to protect them from cleanup.\n"
+      default_wl = default_wl + "# Lines starting with # are comments and will be ignored.\n"
+      default_wl = default_wl + "#\n"
+      default_wl = default_wl + "# ── DEFAULT PROTECTED PATHS ──────────────────────────────────────\n"
+      default_wl = default_wl + "#\n"
+      default_wl = default_wl + "# Xcode Archives contain compiled app binaries and dSYM debug symbols\n"
+      default_wl = default_wl + "# used for crash report symbolication in production. Deleting them\n"
+      default_wl = default_wl + "# prevents re-exporting old releases. Manage via Xcode Organizer\n"
+      default_wl = default_wl + "# (Window > Organizer > Archives) to selectively remove old builds.\n"
+      default_wl = default_wl + home + "/Library/Developer/Xcode/Archives\n"
+      default_wl = default_wl + "#\n"
+      default_wl = default_wl + "# The pnpm content-addressable store uses hard links shared across\n"
+      default_wl = default_wl + "# all local projects. A bulk rm -rf can break projects mid-operation.\n"
+      default_wl = default_wl + "# Use `pnpm store prune` to safely remove unreferenced packages.\n"
+      default_wl = default_wl + home + "/.pnpm-store\n"
+      default_wl = default_wl + "#\n"
+      default_wl = default_wl + "# ── ADD YOUR OWN BELOW ───────────────────────────────────────────\n"
+      default_wl = default_wl + "#\n"
+      default_wl = default_wl + "# Example: " + home + "/Library/Caches/my_important_app\n"
+      write_file(whitelist_file, default_wl)
     } catch (err) {}
   }
   return whitelist
@@ -259,6 +279,35 @@ fn save_whitelist(home: str, whitelist: array) {
     write_file(whitelist_file, content)
   } catch (e) {
     print "Failed to save whitelist:" e
+  }
+}
+
+fn save_scan_history(home: str, total_kb: num, cleaned_targets: array) {
+  let config_dir = home + "/.config/cleanmyos"
+  let history_file = config_dir + "/history.log"
+  try {
+    make_dir(config_dir)
+    let ts = format(now(), {"dateStyle": "medium", "timeStyle": "medium"})
+    let total_str = format_size(total_kb)
+    let names = ""
+    let first = true
+    for t in cleaned_targets {
+      if !first {
+        names = names + ", "
+      }
+      names = names + t["name"]
+      first = false
+    }
+    let entry = "[" + ts + "] Cleaned " + total_str + " | Targets: " + names + "\n"
+    let existing = ""
+    try {
+      existing = read_file(history_file)
+    } catch (e) {}
+    write_file(history_file, existing + entry)
+  } catch (e) {
+    if verbose {
+      print C_RED "[VERBOSE] Failed to save history:" e C_RESET
+    }
   }
 }
 
@@ -323,6 +372,10 @@ fn run_clean_flow(cmdDryRun: bool, is_cli: bool, force: bool) {
       {"name": "Pip Cache", "path": localappdata + "\\pip\\cache", "type": "empty"},
       {"name": "Chrome Caches", "path": localappdata + "\\Google\\Chrome\\User Data\\Default\\Cache", "type": "empty"},
       {"name": "Edge Caches", "path": localappdata + "\\Microsoft\\Edge\\User Data\\Default\\Cache", "type": "empty"},
+      {"name": "Spotify Caches", "path": localappdata + "\\Spotify\\Storage", "type": "empty"},
+      {"name": "Discord Caches", "path": appdata + "\\discord\\Cache", "type": "empty"},
+      {"name": "VS Code Caches", "path": appdata + "\\Code\\Cache", "type": "empty"},
+      {"name": "Firefox Caches", "path": localappdata + "\\Mozilla\\Firefox\\Profiles", "type": "empty"},
       {"name": "Recycle Bin", "path": "C:\\$Recycle.Bin", "type": "empty"}
     ]
   } else {
@@ -340,6 +393,15 @@ fn run_clean_flow(cmdDryRun: bool, is_cli: bool, force: bool) {
       {"name": "Maven Local Repo", "path": home + "/.m2/repository", "type": "empty"},
       {"name": "Chrome Caches", "path": home + "/Library/Caches/Google/Chrome", "type": "empty"},
       {"name": "Safari Caches", "path": home + "/Library/Caches/com.apple.Safari", "type": "empty"},
+      {"name": "Homebrew Caches", "path": home + "/Library/Caches/Homebrew", "type": "empty"},
+      {"name": "pip Caches", "path": home + "/Library/Caches/pip", "type": "empty"},
+      {"name": "pnpm Store", "path": home + "/.pnpm-store", "type": "empty"},
+      {"name": "uv Caches", "path": home + "/Library/Caches/uv", "type": "empty"},
+      {"name": "iOS Simulator Caches", "path": home + "/Library/Developer/CoreSimulator/Caches", "type": "empty"},
+      {"name": "Spotify Caches", "path": home + "/Library/Caches/com.spotify.client", "type": "empty"},
+      {"name": "Slack Caches", "path": home + "/Library/Caches/com.tinyspeck.slackmacgap", "type": "empty"},
+      {"name": "VS Code Caches", "path": home + "/Library/Application Support/Code/Cache", "type": "empty"},
+      {"name": "Firefox Caches", "path": home + "/Library/Caches/Firefox", "type": "empty"},
       {"name": "System Trash bin", "path": home + "/.Trash", "type": "empty"}
     ]
   }
@@ -400,6 +462,40 @@ fn run_clean_flow(cmdDryRun: bool, is_cli: bool, force: bool) {
   }
   print ""
   
+  // #6 Selective clean mode — only in interactive sessions
+  if !is_cli && !force && len(scanned_targets) > 1 {
+    print C_YELLOW "Select targets to clean (comma-separated numbers, or 'all'):" C_RESET
+    let idx = 1
+    for t in scanned_targets {
+      let size_str = format_size(t["kb"])
+      print "  " idx "." t["name"] "(" size_str ")"
+      idx = idx + 1
+    }
+    print C_CYAN "  Choice (default 'all'):" C_RESET
+    let sel_input = trim(input(""))
+    if len(sel_input) > 0 && sel_input != "all" {
+      let sel_parts = split(sel_input, ",")
+      let filtered = []
+      for p in sel_parts {
+        let n = num(trim(p))
+        if n >= 1 && n <= len(scanned_targets) {
+          push(filtered, scanned_targets[n - 1])
+        }
+      }
+      if len(filtered) > 0 {
+        scanned_targets = filtered
+        let new_total = 0
+        for t in scanned_targets {
+          new_total = new_total + t["kb"]
+        }
+        total_kb = new_total
+        formatted_total = format_size(total_kb)
+        print C_GREEN "Selected" len(scanned_targets) "target(s) —" formatted_total "reclaimable." C_RESET
+        print ""
+      }
+    }
+  }
+  
   let is_dry = cmdDryRun
   if !is_cli {
     print "Do you want to run in Dry-Run mode? (y/n, default n):"
@@ -430,6 +526,7 @@ fn run_clean_flow(cmdDryRun: bool, is_cli: bool, force: bool) {
       }
       print ""
       print "🎉 " C_GREEN "Cleanup finished! Reclaimed" formatted_total "of disk space." C_RESET
+      save_scan_history(home, total_kb, scanned_targets)
       print ""
     } else {
       print "Cleanup cancelled."
@@ -438,10 +535,15 @@ fn run_clean_flow(cmdDryRun: bool, is_cli: bool, force: bool) {
   }
 }
 
-fn run_optimize_flow() {
+fn run_optimize_flow(cmdDryRun: bool) {
   print C_CYAN "====================================================" C_RESET
   print "             " C_MAGENTA "🚀 SYSTEM OPTIMIZER SUITE" C_RESET
   print C_CYAN "====================================================" C_RESET
+  
+  if cmdDryRun {
+    print C_YELLOW "[Dry Run Mode] No system changes will be made." C_RESET
+    print ""
+  }
   
   print "Run optimizations (DNS Flush, memory purge, UI reload)? (y/n):"
   let confirm = input("")
@@ -458,70 +560,102 @@ fn run_optimize_flow() {
   if platform == "win32" {
     // 1. Flush DNS
     print "  • Flushing DNS caches..."
-    try {
-      exec("ipconfig /flushdns")
-      print "    " C_GREEN "✓ DNS Cache Flushed" C_RESET
-    } catch (e) {
-      print "    " C_RED "✗ Failed to flush DNS" C_RESET
+    if cmdDryRun {
+      print "    " C_GRAY "[Dry Run] Would run: ipconfig /flushdns" C_RESET
+    } else {
+      try {
+        exec("ipconfig /flushdns")
+        print "    " C_GREEN "✓ DNS Cache Flushed" C_RESET
+      } catch (e) {
+        print "    " C_RED "✗ Failed to flush DNS" C_RESET
+      }
     }
     
     // 2. Clear Font Cache
     print "  • Restarting Font Cache service..."
-    try {
-      exec("powershell -Command \"Stop-Service -Name FontCache -Force; Remove-Item -Path 'C:\\Windows\\ServiceProfiles\\LocalService\\AppData\\Local\\FontCache\\*.dat' -Force -ErrorAction SilentlyContinue; Start-Service -Name FontCache\"")
-      print "    " C_GREEN "✓ Font cache cleaned & restarted" C_RESET
-    } catch (e) {
-      print "    " C_RED "✗ Failed to rebuild font cache (requires Administrator rights)" C_RESET
+    if cmdDryRun {
+      print "    " C_GRAY "[Dry Run] Would run: Stop-Service FontCache → clear .dat → Start-Service FontCache" C_RESET
+    } else {
+      try {
+        exec("powershell -Command \"Stop-Service -Name FontCache -Force; Remove-Item -Path 'C:\\Windows\\ServiceProfiles\\LocalService\\AppData\\Local\\FontCache\\*.dat' -Force -ErrorAction SilentlyContinue; Start-Service -Name FontCache\"")
+        print "    " C_GREEN "✓ Font cache cleaned & restarted" C_RESET
+      } catch (e) {
+        print "    " C_RED "✗ Failed to rebuild font cache (requires Administrator rights)" C_RESET
+      }
     }
     
     // 3. Restart Explorer
     print "  • Restarting Windows Explorer shell..."
-    try {
-      exec("taskkill /f /im explorer.exe && start explorer.exe")
-      print "    " C_GREEN "✓ Explorer shell restarted" C_RESET
-    } catch (e) {
-      print "    " C_RED "✗ Failed to reload Explorer" C_RESET
+    if cmdDryRun {
+      print "    " C_GRAY "[Dry Run] Would run: taskkill /f /im explorer.exe && start explorer.exe" C_RESET
+    } else {
+      try {
+        exec("taskkill /f /im explorer.exe && start explorer.exe")
+        print "    " C_GREEN "✓ Explorer shell restarted" C_RESET
+      } catch (e) {
+        print "    " C_RED "✗ Failed to reload Explorer" C_RESET
+      }
     }
   } else {
     // 1. Flush DNS
     print "  • Flushing DNS caches..."
-    try {
-      exec("dscacheutil -flushcache; killall -HUP mDNSResponder 2>/dev/null || true")
-      print "    " C_GREEN "✓ DNS Cache Flushed" C_RESET
-    } catch (e) {
-      print "    " C_RED "✗ Failed to flush DNS" C_RESET
+    if cmdDryRun {
+      print "    " C_GRAY "[Dry Run] Would run: dscacheutil -flushcache; killall -HUP mDNSResponder" C_RESET
+    } else {
+      try {
+        exec("dscacheutil -flushcache; killall -HUP mDNSResponder 2>/dev/null || true")
+        print "    " C_GREEN "✓ DNS Cache Flushed" C_RESET
+      } catch (e) {
+        print "    " C_RED "✗ Failed to flush DNS" C_RESET
+      }
     }
     
     // 2. Rebuild LaunchServices Database
     print "  • Rebuilding LaunchServices database (fixes association issues)..."
-    try {
-      exec("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -kill -r -domain local -domain system -domain user 2>/dev/null || true")
-      print "    " C_GREEN "✓ LaunchServices rebuilt" C_RESET
-    } catch (e) {
-      print "    " C_RED "✗ Failed to rebuild LaunchServices" C_RESET
+    if cmdDryRun {
+      print "    " C_GRAY "[Dry Run] Would run: lsregister -kill -r -domain local -domain system -domain user" C_RESET
+    } else {
+      try {
+        exec("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -kill -r -domain local -domain system -domain user 2>/dev/null || true")
+        print "    " C_GREEN "✓ LaunchServices rebuilt" C_RESET
+      } catch (e) {
+        print "    " C_RED "✗ Failed to rebuild LaunchServices" C_RESET
+      }
     }
     
-    // 3. Defragment / Purge inactive RAM
+    // 3. Purge inactive RAM
     print "  • Purging inactive memory..."
-    try {
-      exec("purge 2>/dev/null || true")
-      print "    " C_GREEN "✓ RAM compressed/purged" C_RESET
-    } catch (e) {
-      print "    " C_RED "✗ Memory purge failed (may require sudo)" C_RESET
+    if cmdDryRun {
+      print "    " C_GRAY "[Dry Run] Would run: purge" C_RESET
+    } else {
+      try {
+        exec("purge 2>/dev/null || true")
+        print "    " C_GREEN "✓ RAM compressed/purged" C_RESET
+      } catch (e) {
+        print "    " C_RED "✗ Memory purge failed (may require sudo)" C_RESET
+      }
     }
     
     // 4. Reload Finder & Dock
     print "  • Restarting system UI (Finder & Dock)..."
-    try {
-      exec("killall Finder && killall Dock 2>/dev/null || true")
-      print "    " C_GREEN "✓ UI refreshed successfully" C_RESET
-    } catch (e) {
-      print "    " C_RED "✗ Failed to reload system processes" C_RESET
+    if cmdDryRun {
+      print "    " C_GRAY "[Dry Run] Would run: killall Finder && killall Dock" C_RESET
+    } else {
+      try {
+        exec("killall Finder && killall Dock 2>/dev/null || true")
+        print "    " C_GREEN "✓ UI refreshed successfully" C_RESET
+      } catch (e) {
+        print "    " C_RED "✗ Failed to reload system processes" C_RESET
+      }
     }
   }
   
   print ""
-  print "🎉 " C_GREEN "System optimization complete!" C_RESET
+  if cmdDryRun {
+    print "🔍 " C_YELLOW "[Dry Run] Optimization preview complete. No changes made." C_RESET
+  } else {
+    print "🎉 " C_GREEN "System optimization complete!" C_RESET
+  }
   print ""
 }
 
@@ -1000,6 +1134,135 @@ fn run_uninstall_flow() {
   }
 }
 
+fn run_purge_flow() {
+  print C_CYAN "====================================================" C_RESET
+  print "            " C_MAGENTA "🚀 PROJECT BUILD ARTIFACT PURGER" C_RESET
+  print C_CYAN "====================================================" C_RESET
+  
+  print "Enter project directory path to scan (default is current folder):"
+  let input_path = input("")
+  let path = trim(input_path)
+  if len(path) == 0 {
+    path = "."
+  }
+  
+  if !path_exists(path) {
+    print C_RED "Error: Path does not exist:" C_RESET path
+    print ""
+    return
+  }
+  
+  print ""
+  print C_YELLOW "Scanning for build artifacts (node_modules, dist, build, target, .next, .nuxt)..." C_RESET
+  print "This may take a moment..."
+  print ""
+  
+  let platform = get_platform()
+  let out = ""
+  try {
+    if platform == "win32" {
+      let cmd = "powershell -Command \"Get-ChildItem -Path '" + path + "' -Recurse -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^(node_modules|dist|build|target|\\.next|\\.nuxt)$' } | ForEach-Object { $_.FullName }\""
+      out = trim(exec(cmd))
+    } else {
+      let cmd = "find \"" + path + "\" -type d \\( -name \"node_modules\" -o -name \"dist\" -o -name \"build\" -o -name \"target\" -o -name \".next\" -o -name \".nuxt\" \\) -prune 2>/dev/null || true"
+      out = trim(exec(cmd))
+    }
+  } catch (e) {
+    print C_RED "Error scanning:" C_RESET e
+    print ""
+    return
+  }
+  
+  let lines = split(out, "\n")
+  let found = []
+  for line in lines {
+    let t = trim(line)
+    if len(t) > 0 {
+      push(found, t)
+    }
+  }
+  
+  if len(found) == 0 {
+    print "🎉 No build artifacts found to purge!"
+    print ""
+    return
+  }
+  
+  print C_GREEN "Found" len(found) "build artifacts:" C_RESET
+  let sized_found = []
+  let total_kb = 0
+  let idx = 1
+  for item in found {
+    let kb = get_path_size(item)
+    total_kb = total_kb + kb
+    push(sized_found, {"path": item, "kb": kb})
+    
+    let size_str = format_size(kb)
+    let padded_size = size_str
+    while len(padded_size) < 10 {
+      padded_size = padded_size + " "
+    }
+    print "  " idx "." padded_size item
+    idx = idx + 1
+  }
+  
+  print C_CYAN "----------------------------------------------------" C_RESET
+  let total_formatted = format_size(total_kb)
+  print C_BOLD "Total reclaimable space:" C_RESET " " C_RED total_formatted C_RESET
+  print ""
+  
+  print "Select artifacts to delete (comma-separated numbers, or 'all', default 'all'):"
+  let choice = trim(input(""))
+  let targets_to_delete = []
+  
+  if len(choice) == 0 || choice == "all" {
+    targets_to_delete = sized_found
+  } else {
+    let parts = split(choice, ",")
+    for p in parts {
+      let n = num(trim(p))
+      if n >= 1 && n <= len(sized_found) {
+        push(targets_to_delete, sized_found[n - 1])
+      }
+    }
+  }
+  
+  if len(targets_to_delete) == 0 {
+    print "No artifacts selected. Aborting."
+    print ""
+    return
+  }
+  
+  let target_kb = 0
+  for t in targets_to_delete {
+    target_kb = target_kb + t["kb"]
+  }
+  let target_formatted = format_size(target_kb)
+  
+  print C_RED "⚠️  Are you sure you want to permanently delete these" len(targets_to_delete) "items (" target_formatted ")? (y/n):" C_RESET
+  let confirm = input("")
+  if confirm == "y" || confirm == "Y" {
+    print ""
+    print C_YELLOW "Purging artifacts..." C_RESET
+    for item in targets_to_delete {
+      print "  Deleting" item["path"] "..."
+      try {
+        if platform == "win32" {
+          exec("powershell -Command \"Remove-Item -Path '" + item["path"] + "' -Recurse -Force -ErrorAction SilentlyContinue\"")
+        } else {
+          exec("rm -rf \"" + item["path"] + "\"")
+        }
+      } catch (err) {}
+    }
+    print ""
+    print "🎉 " C_GREEN "Purge complete! Reclaimed" target_formatted "of space." C_RESET
+    print ""
+  } else {
+    print "Purge cancelled."
+    print ""
+  }
+}
+
 fn run_whitelist_flow() {
   let home = get_home_dir()
   let running = true
@@ -1085,8 +1348,12 @@ fn show_help() {
   print "  npm run clean:dry:verbose     [Dry Run + Verbose] Run cleanup in dry-run mode with verbose logs"
   print "  npm run status                [Monitor] Run performance dashboard"
   print "  npm run optimize              [Optimize] Run optimization suite"
+  print "  npm run optimize:dry          [Dry Run] Run optimization in dry-run mode"
+  print "  npm run optimize:verbose      [Verbose] Run optimization with verbose logs"
+  print "  npm run optimize:dry:verbose  [Dry Run + Verbose] Run optimization in dry-run mode with verbose logs"
   print "  npm run analyze               [Analyze] Run disk usage analyzer"
   print "  npm run uninstall             [Uninstall] Run application uninstaller"
+  print "  npm run purge                 [Purge] Run project build artifact purger"
   print "  npm run help                  [Help] Show this help screen"
 
   print C_CYAN "====================================================" C_RESET
@@ -1105,18 +1372,19 @@ fn interactive_menu() {
     print "  " C_BLUE "3." C_RESET " 📊 Real-time System Monitor (CPU, RAM, Disk)"
     print "  " C_BLUE "4." C_RESET " 📂 Visual Disk Space Analyzer (Largest Files/Dirs)"
     print "  " C_BLUE "5." C_RESET " 🗑️ Smart App Uninstaller (Leftover Cleaner)"
-    print "  " C_BLUE "6." C_RESET " ⚙️ Manage Whitelist"
-    print "  " C_BLUE "7." C_RESET " ❌ Exit"
+    print "  " C_BLUE "6." C_RESET " 🚀 Purge Project Build Artifacts (node_modules, etc.)"
+    print "  " C_BLUE "7." C_RESET " ⚙️ Manage Whitelist"
+    print "  " C_BLUE "8." C_RESET " ❌ Exit"
     print C_CYAN "----------------------------------------------------" C_RESET
     
-    print "Select an option (1-7):"
+    print "Select an option (1-8):"
     let choice = input("")
     print ""
     
     if choice == "1" {
       run_clean_flow(false, false, false)
     } else if choice == "2" {
-      run_optimize_flow()
+      run_optimize_flow(false)
     } else if choice == "3" {
       run_status_flow()
     } else if choice == "4" {
@@ -1124,12 +1392,14 @@ fn interactive_menu() {
     } else if choice == "5" {
       run_uninstall_flow()
     } else if choice == "6" {
-      run_whitelist_flow()
+      run_purge_flow()
     } else if choice == "7" {
+      run_whitelist_flow()
+    } else if choice == "8" {
       print C_GREEN "Goodbye! Keep your OS clean and fast." C_RESET
       running = false
     } else {
-      print C_RED "Invalid choice, please select 1-7." C_RESET
+      print C_RED "Invalid choice, please select 1-8." C_RESET
       print ""
     }
   }
@@ -1157,6 +1427,8 @@ while arg_idx < len(args) {
     mode = "analyze"
   } else if a == "uninstall" {
     mode = "uninstall"
+  } else if a == "purge" {
+    mode = "purge"
   } else if a == "help" || a == "--help" || a == "-h" {
     mode = "help"
   } else if a == "--dry-run" {
@@ -1177,11 +1449,13 @@ if !importOnly {
   } else if mode == "status" {
     run_status_flow()
   } else if mode == "optimize" {
-    run_optimize_flow()
+    run_optimize_flow(dryRun)
   } else if mode == "analyze" {
     run_analyze_flow()
   } else if mode == "uninstall" {
     run_uninstall_flow()
+  } else if mode == "purge" {
+    run_purge_flow()
   } else if mode == "help" {
     show_help()
   } else {

@@ -1,6 +1,6 @@
 {
   "name": "clean-my-os",
-  "version": "1.0.4",
+  "version": "1.1.0",
   "description": "A cross-platform system scanner, optimizer, and cleaner.",
   "bin": {
     "cleanmyos": "bin/cli.js"
@@ -9,13 +9,13 @@
     "bin/cli.js",
     "main.sesi",
     "assets/",
-    "helpers/svg_badge.sesi",
+    "helpers/agent_file_ops.sesi",
+    "helpers/text_search.sesi",
     "README.md"
   ],
   "license": "MIT",
   "author": "Misterscan",
   "scripts": {
-    "sesi": "node node_modules/@misterscan/sesi/bin/sesi.js",
     "start": "node node_modules/@misterscan/sesi/bin/sesi.js -l main.sesi",
     "help": "node node_modules/@misterscan/sesi/bin/sesi.js -l main.sesi help",
     "clean": "node node_modules/@misterscan/sesi/bin/sesi.js -l main.sesi clean",
@@ -25,13 +25,15 @@
     "clean:dry:verbose": "node node_modules/@misterscan/sesi/bin/sesi.js -l main.sesi clean --dry-run --verbose",
     "status": "node node_modules/@misterscan/sesi/bin/sesi.js -l main.sesi status",
     "optimize": "node node_modules/@misterscan/sesi/bin/sesi.js -l main.sesi optimize",
+    "optimize:verbose": "node node_modules/@misterscan/sesi/bin/sesi.js -l main.sesi optimize --verbose",
+    "optimize:dry": "node node_modules/@misterscan/sesi/bin/sesi.js -l main.sesi optimize --dry-run",
+    "optimize:dry:verbose": "node node_modules/@misterscan/sesi/bin/sesi.js -l main.sesi optimize --dry-run --verbose",
     "analyze": "node node_modules/@misterscan/sesi/bin/sesi.js -l main.sesi analyze",
     "uninstall": "node node_modules/@misterscan/sesi/bin/sesi.js -l main.sesi uninstall",
+    "purge": "node node_modules/@misterscan/sesi/bin/sesi.js -l main.sesi purge",
     "eval": "node node_modules/@misterscan/sesi/bin/sesi.js -e",
     "sesi:help": "node node_modules/@misterscan/sesi/bin/sesi.js -h",
-    "lint": "node node_modules/@misterscan/sesi/bin/sesi.js bin/lint.sesi",
-    "encrypt": "node node_modules/@misterscan/sesi/bin/sesi.js -enc",
-    "decrypt": "node node_modules/@misterscan/sesi/bin/sesi.js -dec"
+    "lint": "node node_modules/@misterscan/sesi/bin/sesi.js bin/lint.sesi"
   },
   "dependencies": {
     "@misterscan/sesi": "1.5.9"

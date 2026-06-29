@@ -54,17 +54,22 @@ npm start
 
 ### 2. Deep System Scan & Cleanup
 
-Scan for junk caches, temporary directories, and developer logs:
+Scan for junk caches (including npm, Yarn, CocoaPods, Homebrew, pip, pnpm, uv, iOS Simulators, Spotify, VS Code, Slack, Firefox, etc.), temporary directories, and developer logs.
+
+Features include:
+
+- **Selective Cleaning:** In interactive mode, select exactly which categories to clean.
+- **Safety Whitelisting:** Protects `Xcode Archives` and `pnpm Store` by default. Can be customized via a local whitelist.
 
 ```bash
 # Run safe dry-run (scans but does not delete files)
 npm run clean:dry
 
-# Scan and clean up files (will prompt for confirmation)
+# Scan and clean up files (will prompt for confirmation or category choices)
 npm run clean
 
 # Auto-confirm and clean files immediately
-npm run clean -y
+npm run clean:force
 ```
 
 ### 3. Real-time System Telemetry
@@ -77,9 +82,13 @@ npm run status
 
 ### 4. Performance Optimizer Suite
 
-Flush DNS cache, rebuild launch databases/font caches, and refresh shells:
+Flush DNS cache, rebuild launch databases/font caches, refresh shells, and purge inactive memory:
 
 ```bash
+# Run safe dry-run preview of optimizations
+npm run optimize --dry-run
+
+# Run active optimizations
 npm run optimize
 ```
 
@@ -99,37 +108,12 @@ Search for applications and automatically clean up associated library leftovers:
 npm run uninstall
 ```
 
-### 7. Auditor & Linter
+### 7. Project Build Artifact Purger
 
-Audit any `.sesi` file for syntax consistency and compliance:
-
-```bash
-npm run lint <filename>
-# Example: npm run lint main.sesi
-```
-
-### 8. Inline Execution (REPL)
-
-Run arbitrary Sesi code snippets instantly:
+Recursively search and bulk-purge project build artifacts (like `node_modules`, `dist`, `build`, `target`, `.next`, and `.nuxt`) within a selected directory:
 
 ```bash
-npm run eval "print('Hello from Sesi!')"
-```
-
-### 9. File Encryption & Decryption
-
-Encrypt sensitive files with a passphrase:
-
-```bash
-npm run encrypt <filename>
-# Example: npm run encrypt secrets.txt
-```
-
-Decrypt encrypted files:
-
-```bash
-npm run decrypt <filename>
-# Example: npm run decrypt secrets.txt.enc
+npm run purge
 ```
 
 ---
