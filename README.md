@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="CleanMyOS Logo" width="600">
+  <img src="https://raw.githubusercontent.com/Misterscan/clean-my-os/refs/heads/main/assets/logo.svg" alt="CleanMyOS Logo" width="600">
 </p>
 
 <p align="center">
-  <img src="assets/badge_os.svg" alt="OS Support" height="20"> 
-  <img src="assets/badge_lang.svg" alt="Language" height="20">
-  <img src="assets/badge_status.svg" alt="Build Status" height="20">
-  <img src="assets/badge_license.svg" alt="License" height="20">
+  <img src="https://raw.githubusercontent.com/Misterscan/clean-my-os/refs/heads/main/assets/badge_os.svg" alt="OS Support" height="20"> 
+  <img src="https://raw.githubusercontent.com/Misterscan/clean-my-os/refs/heads/main/assets/badge_lang.svg" alt="Language" height="20">
+  <img src="https://raw.githubusercontent.com/Misterscan/clean-my-os/refs/heads/main/assets/badge_status.svg" alt="Build Status" height="20">
+  <img src="https://raw.githubusercontent.com/Misterscan/clean-my-os/refs/heads/main/assets/badge_license.svg" alt="License" height="20">
 </p>
 
 <p align="center">
